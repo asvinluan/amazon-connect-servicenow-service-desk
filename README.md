@@ -2,7 +2,7 @@
 
 **Lab work, labelled as a design.** Built in my own AWS account and a free ServiceNow Personal Developer Instance. No employer or client system, no real customer data.
 
-A caller phones Amazon Connect. A quiet lookup checks whether the number belongs to a known person. The caller can **report a problem** (ServiceNow incident), **ask for something** (ServiceNow request) or **check a ticket**. Anything private is handled only after the caller proves they know the last four digits of their customer number. ServiceNow is reached with OAuth 2.0, and every decision leaves an audit record.
+A caller phones Amazon Connect. A quiet lookup checks whether the number belongs to a known person. The caller can **report a problem** (ServiceNow incident), **ask for something** (ServiceNow request) or **check a ticket**. Anything private is handled only after the caller proves they know the last four digits of their customer number. ServiceNow is reached with OAuth 2.0 client credentials by design (the live lab run used Basic auth, see below), and every decision leaves an audit record.
 
 This is the "designed like a real service desk" version of the ServiceNow incident lab in [`amazon-connect-lab`](https://github.com/asvinluan/amazon-connect-lab) (which stays as the simple first build). A bank-themed walk-through of the same design is in [`aws-enterprise-bank-servicenow-lab`](https://github.com/asvinluan/aws-enterprise-bank-servicenow-lab).
 
@@ -13,7 +13,7 @@ This is the "designed like a real service desk" version of the ServiceNow incide
 | Phone menu | Report a problem, ask for something, check a ticket, or an agent. Generated from `tools/gen-flow.mjs`, so every branch is checked by tests. |
 | Lambda | TypeScript, Node 22, arm64: `identify`, `create_incident`, `create_request`, `status`, and a call-ended work note. |
 | Caller verification | The number suggests who is calling; the last 4 digits of the customer number prove it. The name is never spoken before proof. Not-yours and not-found sound the same. |
-| Sign-in | OAuth 2.0 client credentials (token refresh on 401, one shared token request). Basic auth as a stated fallback. |
+| Sign-in | OAuth 2.0 client credentials (token refresh on 401, one shared token request), tested against a fake ServiceNow. Basic auth as a stated fallback: the live run on a developer instance used Basic auth. |
 | Audit | One structured line per decision with a closed field list, and four saved CloudWatch Logs Insights queries. |
 | Operations | Five alarms (errors, slow, no ticket logged, work note failed, verification failures), encrypted SNS topic with its own KMS key. |
 | Scripts | `check-offline`, `store-secret`, `plan`, `invoke-test`, `remove`, `install-workflows`, `run-all`, each as PowerShell and bash. |
