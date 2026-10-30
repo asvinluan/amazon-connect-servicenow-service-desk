@@ -1,0 +1,50 @@
+name: Terraform
+
+# Checks only. There is no plan or apply job: the lab uses an EXISTING Amazon
+# Connect instance in a personal AWS account, and applying is a deliberate local
+# act (scripts/run-all), never something a merge does.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  checks:
+    name: Format and validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the Lambda
+        # archive_file zips lambda/servicedesk/dist, so build it first.
+        working-directory: lambda/servicedesk
+        run: |
+          npm ci
+          npm run build
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init without a backend
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate -no-color

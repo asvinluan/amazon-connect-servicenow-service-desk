@@ -1,0 +1,29 @@
+{
+  "name": "servicedesk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Amazon Connect lab: a service desk on the phone. Incidents and requests in ServiceNow, caller verification, OAuth, audit events (TypeScript Lambda).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node build.mjs",
+    "gen-flow": "node ../../tools/gen-flow.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@aws-lambda-powertools/logger": "^2.36.0",
+    "@aws-lambda-powertools/metrics": "^2.36.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1000.0",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.5"
+  }
+}

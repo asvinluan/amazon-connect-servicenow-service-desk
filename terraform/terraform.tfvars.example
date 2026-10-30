@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region = "ap-southeast-2"
+
+# The UUID of YOUR Amazon Connect instance: Connect console > your instance >
+# Overview > the last part of the Instance ARN. This one is a made-up example.
+connect_instance_id = "00000000-0000-0000-0000-000000000000"
+
+# A queue that already exists on that instance.
+queue_name = "lab-queue-general"
+
+# Optional.
+# alarm_email = "you@example.com"

@@ -1,0 +1,51 @@
+name: Node
+
+# The service desk Lambda is TypeScript: typecheck, test (including the checks on
+# the generated Connect flow), bundle, audit. No AWS credentials and no ServiceNow
+# instance are needed; the tests use a fake of each.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: lambda/servicedesk
+
+jobs:
+  test:
+    name: Typecheck, test and bundle the TypeScript Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # matches the nodejs22.x runtime in terraform/main.tf
+          cache: npm
+          cache-dependency-path: lambda/servicedesk/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Flow file is up to date
+        # The Connect flow is generated. Fails if someone edited the JSON by hand.
+        run: npm run gen-flow -- --check
+
+      - name: Bundle
+        run: npm run build
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high

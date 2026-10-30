@@ -1,0 +1,24 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+tfplan
+plan.txt
+terraform/build/
+
+# Never commit real values: these hold account ids, instance names and phone numbers
+*.tfvars
+!*.tfvars.example
+
+# Node. node_modules is installed from package-lock.json; dist is rebuilt by
+# npm run build. Neither is ever committed.
+node_modules/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.bak
