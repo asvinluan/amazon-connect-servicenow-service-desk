@@ -7,6 +7,8 @@
 #   - the permission that lets Connect call the Lambda (the association)
 #   - the contact flow, "<prefix>-service-desk-flow"
 #   - an EventBridge rule that adds a note to the ticket when a call ends
+#   - OPTIONAL (lens_route_enabled = true): a second EventBridge rule that sends
+#     Contact Lens rule matches (Negative-Sentiment and so on) to the same Lambda
 #   - alarms, a notification topic and saved audit queries (alarms.tf, audit.tf)
 # Nothing already on the instance is modified.
 #
@@ -100,9 +102,11 @@ resource "aws_lambda_function" "servicedesk" {
 
   environment {
     variables = {
-      SERVICENOW_SECRET_ID         = data.aws_secretsmanager_secret.servicedesk.name
-      SERVICENOW_CALL_TIMEOUT_SEC  = "3"
-      SERVICENOW_TOTAL_BUDGET_SEC  = "6"
+      SERVICENOW_SECRET_ID        = data.aws_secretsmanager_secret.servicedesk.name
+      SERVICENOW_CALL_TIMEOUT_SEC = "3"
+      SERVICENOW_TOTAL_BUDGET_SEC = "6"
+      # Empty switches the Contact Lens route off inside the function as well.
+      LENS_TICKET_RULES            = var.lens_route_enabled ? join(",", var.lens_ticket_rules) : ""
       POWERTOOLS_SERVICE_NAME      = "servicedesk"
       POWERTOOLS_METRICS_NAMESPACE = "AmazonConnectLab"
       POWERTOOLS_LOG_LEVEL         = "INFO"
@@ -156,6 +160,58 @@ resource "aws_lambda_permission" "call_ended" {
   function_name = aws_lambda_function.servicedesk.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.call_ended.arn
+}
+
+# ---------------------------------------------------------------------------
+# Contact Lens rule matched -> note on the ticket, or a new incident.
+#
+# A Contact Lens rule (a category such as Negative-Sentiment) can publish an
+# EventBridge event when it matches. This rule sends those events to the same
+# Lambda. OFF by default, so the original 22-resource plan is unchanged; turn it
+# on with  lens_route_enabled = true  (3 more resources).
+#
+# AWS documents the event name two ways ("conversational analytics ..." in the
+# Connect administrator guide, "Contact Lens ..." in the EventBridge reference),
+# so the pattern lists both. The first live run records which one arrives.
+# The function also checks the rule name against var.lens_ticket_rules.
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "lens_rules_matched" {
+  count = var.lens_route_enabled ? 1 : 0
+
+  name        = "${var.name_prefix}-servicedesk-lens-rule-matched"
+  description = "A Contact Lens rule matched a call: note the call's ServiceNow ticket, or open an incident."
+
+  event_pattern = jsonencode({
+    source = ["aws.connect"]
+    "detail-type" = [
+      "conversational analytics Post Call Rules Matched",
+      "Contact Lens Post Call Rules Matched",
+      "conversational analytics Realtime Rules Matched",
+      "Contact Lens Realtime Rules Matched",
+    ]
+    detail = {
+      instanceArn = [data.aws_connect_instance.this.arn]
+      ruleName    = var.lens_ticket_rules
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "lens_rules_matched" {
+  count = var.lens_route_enabled ? 1 : 0
+
+  rule = aws_cloudwatch_event_rule.lens_rules_matched[0].name
+  arn  = aws_lambda_function.servicedesk.arn
+}
+
+resource "aws_lambda_permission" "lens_rules_matched" {
+  count = var.lens_route_enabled ? 1 : 0
+
+  statement_id  = "AllowEventBridgeLensRules"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.servicedesk.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.lens_rules_matched[0].arn
 }
 
 # ---------------------------------------------------------------------------

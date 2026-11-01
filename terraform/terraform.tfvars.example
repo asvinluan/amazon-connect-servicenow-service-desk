@@ -11,3 +11,7 @@ queue_name = "lab-queue-general"
 
 # Optional.
 # alarm_email = "you@example.com"
+
+# Optional. Turns on the Contact Lens route (a matched Contact Lens rule opens or
+# notes a ServiceNow ticket). Adds 3 resources: the plan then expects 25 to add.
+# lens_route_enabled = true

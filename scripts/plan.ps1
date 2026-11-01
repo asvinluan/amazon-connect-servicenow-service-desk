@@ -6,7 +6,7 @@
 .DESCRIPTION
   Runs npm ci and npm run build (Terraform zips the result), then terraform init
   and terraform plan, and tells you whether the plan is the one this lab expects:
-  22 to add, 0 to change, 0 to destroy (23 if you set alarm_email). Apply it yourself afterwards with
+  22 to add, 0 to change, 0 to destroy (23 if you set alarm_email). With lens_route_enabled = true: 25 (26). Apply it yourself afterwards with
   terraform apply tfplan, from the terraform folder.
 
 .EXAMPLE
@@ -21,6 +21,10 @@ $lambda    = Join-Path $repo 'lambda\servicedesk'
 $terraform = Join-Path $repo 'terraform'
 $npm       = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
 $expectedAdd = 22
+
+# The optional Contact Lens route adds three resources (rule, target, permission).
+$tfvarsFile = Join-Path $terraform 'terraform.tfvars'
+if ((Test-Path $tfvarsFile) -and (Select-String -Path $tfvarsFile -Pattern '^\s*lens_route_enabled\s*=\s*true' -Quiet)) { $expectedAdd = 25 }
 
 if (-not $env:AWS_REGION) { $env:AWS_REGION = 'ap-southeast-2' }
 $env:AWS_DEFAULT_REGION = $env:AWS_REGION

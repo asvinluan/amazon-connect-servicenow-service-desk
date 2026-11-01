@@ -42,7 +42,9 @@ export type AuditEvent =
   | "request_existing"
   | "status_read"
   | "status_refused"
-  | "call_ended_note";
+  | "call_ended_note"
+  | "lens_ticket_created"
+  | "lens_note";
 
 export interface AuditFields {
   contactId?: string;

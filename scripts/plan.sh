@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the TypeScript Lambda, then show what Terraform WOULD change. Changes nothing.
 # Expected plan for this lab: 22 to add, 0 to change, 0 to destroy (23 if you set alarm_email).
+# With  lens_route_enabled = true  in terraform.tfvars the Contact Lens route adds 3 more (25, or 26 with alarm_email).
 # Apply it yourself afterwards:  cd terraform && terraform apply tfplan
 #
 #   ./scripts/plan.sh
@@ -28,6 +29,8 @@ for tool in node aws terraform; do
   fi
 done
 [ -f "$tf/terraform.tfvars" ] || stop "terraform/terraform.tfvars is missing. Copy terraform.tfvars.example to terraform.tfvars and set connect_instance_id."
+# The optional Contact Lens route adds three resources (rule, target, permission).
+if grep -Eq '^[[:space:]]*lens_route_enabled[[:space:]]*=[[:space:]]*true' "$tf/terraform.tfvars"; then expected_add=25; fi
 
 # ---- which AWS account? ------------------------------------------------------
 account="$(aws sts get-caller-identity --query Account --output text 2>/dev/null | tr -d '\r')" \

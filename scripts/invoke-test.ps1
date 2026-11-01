@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Run 16 checks against the deployed service desk Lambda and print a PASS/FAIL table.
+  Run 18 checks (17 and 18 need the Contact Lens route and show SKIP while it is off) against the deployed service desk Lambda and print a PASS/FAIL table.
 
 .DESCRIPTION
   Creates a test incident and a test request in YOUR ServiceNow developer instance.

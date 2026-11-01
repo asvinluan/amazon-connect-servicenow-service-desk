@@ -140,7 +140,7 @@ The lab matches a caller on mobile or business phone. A number stored in another
 1. Install tools and set up ServiceNow (section 4).
 2. `check-offline` (no AWS, no ServiceNow touched).
 3. `store-secret` (checks the sign-in first, shows what the user can read, then stores it).
-4. `plan` (expect **22 to add, 0 to change, 0 to destroy**; 23 if you set `alarm_email`).
+4. `plan` (expect **22 to add, 0 to change, 0 to destroy**; 23 if you set `alarm_email`; 25 or 26 with the optional Contact Lens route, section 11b).
 5. `terraform apply tfplan` by hand, or let `run-all` do steps 2 to 6 with you typing `yes` and `apply`.
 6. `invoke-test` (expect 16 PASS).
 7. Optional: test the flow in the Connect console, or a real call.
@@ -150,7 +150,7 @@ The lab matches a caller on mobile or business phone. A number stored in another
 
 ## 6. Testing
 
-* **Unit tests (143).** Each action, verification, OAuth refresh and the shared token request, idempotency, error paths, the audit field list, and the generated flow (every branch reaches the queue or a goodbye; `callerVerified` is only set after a successful check).
+* **Unit tests (157).** Each action, verification, OAuth refresh and the shared token request, idempotency, error paths, the audit field list, and the generated flow (every branch reaches the queue or a goodbye; `callerVerified` is only set after a successful check).
 * **invoke-test (16 live checks)** calls the deployed Lambda directly: identify known and unknown; create incident, again, and for an unknown caller; create request with right digits, again, wrong digits and an unknown caller; status of own incident, own request, wrong digits, someone else's ticket and a missing ticket; call-ended note and call-ended with no ticket.
 * **Flow test**: Connect > Routing > Flows > the service desk flow > Test.
 * **Real call**: needs a claimed number (billed monthly; Australian numbers need identity verification, 1 to 3 business days) and an agent signed in to the CCP and Available.
@@ -224,9 +224,13 @@ Be honest about these in an interview.
 
 * `terraform plan` and `apply` with the real AWS provider: 22 resources created (21 first, then the flow after two fixes).
 * Amazon Connect accepted and created the contact flow, after the two rule fixes in section 12b.
-* `invoke-test`: all 16 checks passed against the live ServiceNow, signed in with Basic auth: caller lookup, verification by the last 4 digits, incident and request creation, status checks (own, wrong digits, someone else's, missing), and the work note after a call.
+* `invoke-test`: all 16 checks (of the 16 it had on 30 Oct 2026; it now has 18, the last two for the Contact Lens route) passed against the live ServiceNow, signed in with Basic auth: caller lookup, verification by the last 4 digits, incident and request creation, status checks (own, wrong digits, someone else's, missing), and the work note after a call.
 * The ServiceNow roles that made it work (section 4.1) and the `employee_number` read.
 * A real phone call (30 Oct 2026): the flow answered, played the menu, sent the caller-only option to the queue for an unrecognised number, and created an incident (Phone channel) whose number it read back.
+
+**Built and unit-tested, live run pending (see `SESSION-BASH.md` / `SESSION-POWERSHELL.md`)**
+
+* The Contact Lens route: a Contact Lens rule matches, EventBridge sends the event to this Lambda, which notes the call's ticket or opens an incident (section 11b). 12 unit tests against a fake ServiceNow; the event's exact name and shape are unconfirmed until a live call (two AWS pages disagree, so both names are accepted).
 
 **Not proven**
 
@@ -236,9 +240,21 @@ Be honest about these in an interview.
 * The narrowest ServiceNow role for creating requests (`catalog_admin` is broader than needed).
 * PowerShell 5.1 specifically (the scripts ran on the author's Windows PowerShell; the version was not recorded).
 
-**Proven offline:** 143 TypeScript unit tests against a fake ServiceNow (including OAuth), strict type checking, bundle build, generated-flow structure and security checks, Terraform file checks (parse, references, placeholders, formatting), shellcheck on the bash scripts, and PowerShell parse checks.
+**Proven offline:** 157 TypeScript unit tests against a fake ServiceNow (including OAuth), strict type checking, bundle build, generated-flow structure and security checks, Terraform file checks (parse, references, placeholders, formatting), shellcheck on the bash scripts, and PowerShell parse checks.
 
 **Design limits:** last-4 verification is weak; the customer number is a ServiceNow Employee ID stand-in (a bank has a core-banking customer id); one queue, one flow; the PDI hibernates (the Lambda treats the HTML reply as a degraded reply and the caller still reaches an agent).
+
+## 11b. The Contact Lens route (optional, off by default)
+
+A Contact Lens rule (a category such as `Negative-Sentiment`) can publish an EventBridge event when it matches. With `lens_route_enabled = true` in `terraform.tfvars`, three more resources are created (an EventBridge rule, its target and the permission), and the same Lambda handles that event:
+
+1. The rule name must be in `lens_ticket_rules` (default `Negative-Sentiment`, `Escalation`, `Complaint`). Anything else is ignored.
+2. The contact id comes from the event's `contactArn`. If the call already has a ticket (made through the menu), the function adds a work note naming the rule.
+3. If it has none, only a rule in `lens_open_rules` (default `Negative-Sentiment`) opens an incident. The others wait and retry, because two rules matching one call arrive at the same instant and would each open an incident. Keep `lens_open_rules` to one rule.
+4. The ticket carries only the rule name, when it matched and the contact id: no transcript and no caller details (the event has none; fetching them with `DescribeContact` is a design step, not built).
+5. AWS documents the event name two ways, so the EventBridge pattern lists both (`conversational analytics ... Rules Matched` and `Contact Lens ... Rules Matched`). The first live run records which one arrives (the `lens event received` audit line).
+
+The Contact Lens rules themselves are created by the helper in `amazon-connect-contact-lens-lab` (`lens categories --apply --eventbridge`). With the route on, the plan expects 25 to add (26 with `alarm_email`).
 
 ## 12. Troubleshooting
 
@@ -284,11 +300,11 @@ The flow problems were found with `scripts/probe-flow`, which sends the same flo
 
 |Path|What it is|
 |-|-|
-|`lambda/servicedesk/`|TypeScript Lambda, 143 tests, build script|
+|`lambda/servicedesk/`|TypeScript Lambda, 157 tests, build script|
 |`tools/gen-flow.mjs`|Generates the Connect flow template|
 |`tools/check-terraform.py`|Offline Terraform file checker|
 |`tools/probe-flow.mjs`|Asks Connect why it refused the flow (via `scripts/probe-flow`)|
 |`terraform/`|Lambda, role, rule, flow, alarms, KMS, SNS, saved queries|
-|`scripts/`|check-offline, store-secret, test-signin, plan, invoke-test, probe-flow, remove, install-workflows, run-all (each as .ps1 and .sh)|
+|`scripts/`|check-offline, store-secret, test-signin, plan, invoke-test, audit-trail, probe-flow, remove, install-workflows, run-all (each as .ps1 and .sh)|
 |`ci/workflows/`|node.yml and terraform.yml, installed by `install-workflows`|
-|`docs/`|This manual and the two runbooks|
+|`docs/`|This manual, the two runbooks, and the two one-session runbooks (`SESSION-*.md`)|

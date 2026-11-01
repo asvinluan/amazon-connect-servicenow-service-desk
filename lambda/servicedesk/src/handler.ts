@@ -21,6 +21,12 @@
 //                    EventBridge when a call ends. A rule sends it here and the
 //                    function adds a work note to whichever ticket the call made.
 //
+//   (a second event) A Contact Lens rule (a category such as Negative-Sentiment)
+//                    can publish an EventBridge event when it matches. Another
+//                    rule sends that here. The function adds a note to the call's
+//                    ticket, or opens an incident if the call has none yet. Only
+//                    rule names on an allow list (LENS_TICKET_RULES) may do this.
+//
 // Rules that shape the error handling
 // -----------------------------------
 //   * An expected condition is NOT an error. An unknown caller, a wrong digit, a
@@ -82,6 +88,32 @@ interface ContactEvent {
     disconnectTimestamp?: string;
     agentInfo?: { connectedToAgentTimestamp?: string };
   };
+}
+
+interface LensEvent {
+  "detail-type": string;
+  detail?: {
+    ruleName?: string;
+    actionName?: string;
+    contactArn?: string;
+  };
+}
+
+// The AWS pages disagree on the event's name: the Connect administrator guide says
+// "conversational analytics ... Rules Matched", the EventBridge reference says
+// "Contact Lens ... Rules Matched". Accept both, so the route works whichever
+// name the service really sends. The first live run records which one it was.
+const LENS_EVENT_TYPES: Record<string, "post-call" | "real-time"> = {
+  "conversational analytics Post Call Rules Matched": "post-call",
+  "Contact Lens Post Call Rules Matched": "post-call",
+  "conversational analytics Realtime Rules Matched": "real-time",
+  "Contact Lens Realtime Rules Matched": "real-time",
+};
+
+function isLensEvent(event: unknown): event is LensEvent {
+  if (typeof event !== "object" || event === null) return false;
+  const type = (event as Record<string, unknown>)["detail-type"];
+  return typeof type === "string" && Object.hasOwn(LENS_EVENT_TYPES, type);
 }
 
 function isContactEvent(event: unknown): event is ContactEvent {
@@ -535,6 +567,102 @@ function workNote(detail: NonNullable<ContactEvent["detail"]>): string {
 }
 
 // ---------------------------------------------------------------------------
+// Contact Lens rule matched (EventBridge)
+// ---------------------------------------------------------------------------
+
+// Connect only allows these characters in a rule name. Checking it again here
+// means a name can never carry anything odd into a ServiceNow note.
+const RULE_NAME_RE = /^[0-9A-Za-z._-]{1,64}$/;
+const CONTACT_ARN_RE = /\/contact\/([A-Za-z0-9-]{8,64})$/;
+
+async function handleLensRule(event: LensEvent, config: Config, deadline: Deadline): Promise<FlatMap> {
+  const when = LENS_EVENT_TYPES[event["detail-type"]] ?? "post-call";
+  const detail = event.detail ?? {};
+  const ruleName = detail.ruleName ?? "";
+  // Records which of the two documented event names really arrives (a fixed list,
+  // so safe to log) and which rule it was. The first live run reads this.
+  logger.info("lens event received", { detailType: event["detail-type"], when, ruleName: ruleName.slice(0, 40) });
+
+  if (config.lensRules.length === 0) {
+    return flat({ status: "ignored", reason: "lens_route_off" });
+  }
+  // Only rules on the allow list may touch a ticket: a wrong rule must not write.
+  if (!RULE_NAME_RE.test(ruleName) || !config.lensRules.includes(ruleName)) {
+    logger.info("lens rule not on the allow list", { ruleName: ruleName.slice(0, 40) });
+    return flat({ status: "ignored", reason: "rule_not_allowed" });
+  }
+  const contactId = CONTACT_ARN_RE.exec(detail.contactArn ?? "")?.[1] ?? "";
+  if (!isContactId(contactId)) {
+    logger.warn("lens event without a usable contact id");
+    return flat({ status: "ignored", reason: "no_contact_id" });
+  }
+  if (!config.secretId) {
+    logger.error("SERVICENOW_SECRET_ID is not set");
+    return flat({ status: "error", reason: "secret_env_missing" });
+  }
+
+  const note = `Amazon Connect Contact Lens: the ${when} rule "${ruleName}" matched this call.`;
+
+  try {
+    const creds = await loadCredentials(config.secretId, deadline);
+    const existing =
+      (await findTicketByContactId(creds, "incident", contactId, deadline)) ??
+      (await findTicketByContactId(creds, "request", contactId, deadline));
+
+    if (existing) {
+      await addWorkNote(creds, existing.kind, existing.sysId, note, deadline);
+      audit("lens_note", { contactId, ticketType: existing.kind, ticketNumber: existing.number, reason: ruleName });
+      metrics.addMetric("LensNoteAdded", MetricUnit.Count, 1);
+      return flat({ status: "updated", reason: "", ticketNumber: existing.number });
+    }
+
+    // No ticket yet. Only an "opening" rule may start one. Any other rule waits:
+    // its event can arrive a moment before the opening rule's incident exists, so
+    // fail in a retryable way and let Lambda try again (about a minute later).
+    if (!config.lensOpenRules.includes(ruleName)) {
+      logger.info("lens rule matched but the call has no ticket yet", { contactId, ruleName });
+      throw new Fallback("ticket_not_yet", "degraded");
+    }
+
+    // The call never reported a problem through the menu, but Contact Lens says
+    // it was a call that matters. Open an incident.
+    const incident = await createTicket(
+      creds,
+      "incident",
+      {
+        short_description: `Contact Lens: ${ruleName} call`,
+        description: [
+          "Opened automatically from an Amazon Connect Contact Lens rule match.",
+          `Rule: ${ruleName}`,
+          `Detected: ${when}`,
+          `Action name: ${(detail.actionName ?? "").replace(/[^0-9A-Za-z._ -]/g, "").slice(0, 60) || "not provided"}`,
+          "No caller was identified or verified by this route.",
+          `Amazon Connect contact id: ${contactId}`,
+        ].join("\n"),
+        contact_type: "phone",
+        category: "inquiry",
+        impact: "3",
+        urgency: "2",
+        correlation_id: contactId,
+        correlation_display: "Amazon Connect",
+      },
+      deadline,
+    );
+    audit("lens_ticket_created", { contactId, ticketType: "incident", ticketNumber: incident.number, reason: ruleName });
+    metrics.addMetric("LensTicketCreated", MetricUnit.Count, 1);
+    return flat({ status: "created", reason: "", ticketNumber: incident.number });
+  } catch (err) {
+    if (err instanceof Fallback) {
+      metrics.addMetric("LensRouteFailed", MetricUnit.Count, 1);
+      logger.warn("lens route failed", { contactId, reason: err.reason });
+      if (err.retryable) throw err; // asynchronous: let Lambda retry a temporary problem
+      return flat({ status: err.status, reason: err.reason });
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -546,6 +674,9 @@ export async function handler(event: unknown): Promise<FlatMap> {
   try {
     if (isContactEvent(event)) {
       return await handleDisconnect(event, config, deadline);
+    }
+    if (isLensEvent(event)) {
+      return await handleLensRule(event, config, deadline);
     }
 
     const flowEvent = (typeof event === "object" && event !== null ? event : {}) as FlowEvent;

@@ -286,3 +286,24 @@ export function timeoutError(): Error {
   err.name = "TimeoutError";
   return err;
 }
+
+/** What a Contact Lens rule publishes to EventBridge when it matches (post-call by default). */
+export function lensEvent(
+  overrides: Record<string, unknown> = {},
+  detailType = "conversational analytics Post Call Rules Matched",
+) {
+  return {
+    version: "0",
+    id: "11111111-2222-3333-4444-555555555555",
+    source: "aws.connect",
+    "detail-type": detailType,
+    detail: {
+      version: "1.0",
+      ruleName: "Negative-Sentiment",
+      actionName: "lens-lab-negative-sentiment",
+      instanceArn: "arn:aws:connect:ap-southeast-2:111122223333:instance/aaaaaaaa-0000-0000-0000-000000000000",
+      contactArn: `arn:aws:connect:ap-southeast-2:111122223333:instance/aaaaaaaa-0000-0000-0000-000000000000/contact/${CONTACT_ID}`,
+      ...overrides,
+    },
+  };
+}

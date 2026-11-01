@@ -13,6 +13,11 @@ output "log_group" {
   value       = aws_cloudwatch_log_group.servicedesk.name
 }
 
+output "lens_route" {
+  description = "Whether the Contact Lens route is on, and the rule names allowed to open or note a ticket."
+  value       = var.lens_route_enabled ? "on: ${join(", ", var.lens_ticket_rules)}" : "off (set lens_route_enabled = true to turn it on)"
+}
+
 output "alarm_topic_arn" {
   description = "SNS topic the alarms publish to."
   value       = aws_sns_topic.alarms.arn

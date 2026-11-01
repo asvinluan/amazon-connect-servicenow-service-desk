@@ -1,4 +1,5 @@
 // Try the DEPLOYED service desk Lambda with synthetic events and print a table.
+// Checks 17 and 18 test the Contact Lens route and show SKIP while it is switched off.
 //
 // Run by invoke-test.ps1 or invoke-test.sh. It calls the AWS CLI directly (with an
 // argument list, so no shell can mangle the JSON) and checks each answer against
@@ -160,6 +161,23 @@ check("15 call ended -> work note on the ticket", () => invoke(disconnectEvent(c
   r.status === "updated" ? "PASS" : "FAIL");
 check("16 call ended, but no ticket for it", () => invoke(disconnectEvent(randomUUID())), (r) =>
   r.status === "no_ticket" ? "PASS" : "FAIL");
+
+// ---- Contact Lens route (needs lens_route_enabled = true in terraform.tfvars; otherwise SKIP)
+const lensEvent = (contactId, ruleName) => ({
+  "detail-type": "conversational analytics Post Call Rules Matched",
+  source: "aws.connect",
+  detail: {
+    version: "1.0",
+    ruleName,
+    actionName: "lens-lab-test",
+    contactArn: `arn:aws:connect:${region}:000000000000:instance/00000000-0000-0000-0000-000000000000/contact/${contactId}`,
+  },
+});
+const contactLens = randomUUID();
+check("17 Contact Lens rule matched, call has no ticket", () => invoke(lensEvent(contactLens, "Negative-Sentiment")), (r) =>
+  r.status === "created" && /^INC\d{7}$/.test(r.ticketNumber) ? "PASS" : r.reason === "lens_route_off" ? "SKIP" : "FAIL");
+check("18 Contact Lens rule matched again, same call", () => invoke(lensEvent(contactLens, "Negative-Sentiment")), (r) =>
+  r.status === "updated" ? "PASS" : r.reason === "lens_route_off" ? "SKIP" : "FAIL");
 
 rmSync(work, { recursive: true, force: true });
 

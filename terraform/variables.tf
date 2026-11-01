@@ -76,3 +76,31 @@ variable "alarm_email" {
   type        = string
   default     = ""
 }
+
+variable "lens_route_enabled" {
+  description = "Turn on the Contact Lens route: a matched Contact Lens rule opens or updates a ServiceNow ticket. Off by default (3 extra resources when on)."
+  type        = bool
+  default     = false
+}
+
+variable "lens_ticket_rules" {
+  description = "Contact Lens rule names allowed to touch a ticket. Must match the rule names created by the amazon-connect-contact-lens-lab helper (letters, digits, dot, underscore, hyphen)."
+  type        = list(string)
+  default     = ["Negative-Sentiment", "Escalation", "Complaint"]
+
+  validation {
+    condition     = alltrue([for r in var.lens_ticket_rules : can(regex("^[0-9A-Za-z._-]{1,64}$", r))])
+    error_message = "A rule name may only contain letters, digits, dot, underscore and hyphen (no spaces)."
+  }
+}
+
+variable "lens_open_rules" {
+  description = "The rules from lens_ticket_rules that may OPEN an incident when the call has no ticket. The others only add a note to an existing ticket (and retry once or twice if it is not there yet). Keep it to one rule: two opening rules matching the same call would each open an incident."
+  type        = list(string)
+  default     = ["Negative-Sentiment"]
+
+  validation {
+    condition     = alltrue([for r in var.lens_open_rules : contains(var.lens_ticket_rules, r)])
+    error_message = "Every rule in lens_open_rules must also be in lens_ticket_rules."
+  }
+}

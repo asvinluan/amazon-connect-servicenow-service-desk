@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run 16 checks against the deployed service desk Lambda and print a PASS/FAIL table.
+# Run 18 checks against the deployed service desk Lambda and print a PASS/FAIL table.
 # Creates a test incident and a test request in YOUR ServiceNow developer instance.
 # Run it only after terraform apply.
 #
